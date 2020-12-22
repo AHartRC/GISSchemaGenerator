@@ -1,4 +1,7 @@
-﻿namespace GISSchemaGenerator
+﻿using System.Configuration;
+using System.IO;
+
+namespace GISSchemaGenerator
 {
 	#region Library Imports
 
@@ -9,6 +12,14 @@
 
 	public class Program
 	{
+		public static string SourceDirectoryPath => ConfigurationManager.AppSettings["SourceDirectory"];
+		public static string OutputDirectoryPath => ConfigurationManager.AppSettings["OutputDirectory"];
+
+		public static DirectoryInfo SourceDirectory => new DirectoryInfo(SourceDirectoryPath);
+		public static DirectoryInfo OutputDirectory => new DirectoryInfo(OutputDirectoryPath);
+
+		public static string FilePrefix => ConfigurationManager.AppSettings["FilePrefix"];
+
 		static Program()
 		{
 			Initialize();
@@ -19,8 +30,16 @@
 
 		private static void Main(string[] args)
 		{
-			Stopwatch sw = Stopwatch.StartNew();
-			SchemaHelper.ProcessDirectory();
+			var sw = Stopwatch.StartNew();
+
+			if (!SourceDirectory.Exists)
+				throw new ArgumentNullException(SourceDirectoryPath);
+
+			if (!OutputDirectory.Exists)
+				OutputDirectory.Create();
+
+			SchemaHelper.ProcessDirectories(SourceDirectory);
+
 			sw.Stop();
 			Console.WriteLine($"Application has finished!\r\nTOTAL DURATION: {sw.Elapsed}");
 			Console.WriteLine("PRESS ENTER TO EXIT APPLICATION");

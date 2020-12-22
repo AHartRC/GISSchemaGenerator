@@ -31,7 +31,7 @@ namespace GISSchemaGenerator
 		/// </returns>
 		public override string ToString()
 		{
-			string output = $"Name: {Name} | {Columns.Count} Columns";
+			var output = $"Name: {Name} | {Columns.Count} Columns";
 			if(Columns.Count > 0)
 				output = Columns.Aggregate(output, (current, column) => current + $"\r\n\t{column}");
 
@@ -40,9 +40,9 @@ namespace GISSchemaGenerator
 
 		public string ToEFString()
 		{
-			string output = $"public class {Name}\r\n{{";
+			var output = $"public class {Name} : BaseModel\r\n{{";
 			if (Columns.Count > 0)
-				output = Columns.Aggregate(output, (current, column) => current + $"{column.ToEFString()}\r\n");
+				output = Columns.Aggregate(output, (current, column) => current + $"\r\n\t{column.ToEFString()}");
 			output += "}";
 			return output;
 		}

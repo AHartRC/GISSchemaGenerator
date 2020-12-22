@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace GISSchemaGenerator
 {
 	#region Library Imports
@@ -13,6 +15,7 @@ namespace GISSchemaGenerator
 	{
 		public DBFField(short index, BinaryReader br)
 		{
+			Values = new List<string>();
 			Index = index;
 			RawName = br.ReadBytes(11).TakeWhile(w => w != 0).ToArray();
 			RawFieldType = br.ReadByte();
@@ -42,20 +45,12 @@ namespace GISSchemaGenerator
 		public short SetFieldsFlag { get; set; }
 		public byte[] ReservedC { get; set; }
 		public short MDXFlag { get; set; }
-		public int? MaxLength { get; set; }
-		public int? MinLength { get; set; }
-		public long MaxNumericValue { get; set; }
-		public long MinNumericValue { get; set; }
-		public decimal MaxDecimalValue { get; set; }
-		public decimal MinDecimalValue { get; set; }
-		public short Precision { get; set; }
-		public short Scale { get; set; }
-		public bool IsNullable { get; set; }
+		public ICollection<string> Values { get; set; }
 
 		public override string ToString()
 		{
 			return
-				$"Name: {Name} | Field Type: {FieldType} | Data Type: {DataType} | Length: {Length} | Decimals: {DecimalCount}";
+				$"Name: {Name} | Field Type: {FieldType} | Length: {Length}";
 		}
 	}
 }

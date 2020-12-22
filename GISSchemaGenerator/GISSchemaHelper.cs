@@ -1,9 +1,12 @@
+using System.Collections.Generic;
+
 namespace GISSchemaGenerator
 {
 	#region Library Imports
 
 	using System;
 	using System.Configuration;
+	using System.Data.Spatial;
 	using System.Diagnostics;
 	using System.IO;
 	using System.IO.Compression;
@@ -15,62 +18,39 @@ namespace GISSchemaGenerator
 
 	public class GISSchemaHelper
 	{
+		public static string GeometryColumnName => ConfigurationManager.AppSettings["GeometryColumnName"];
+		public static string OutputDirectoryPath => ConfigurationManager.AppSettings["OutputDirectory"];
+
 		public GISSchemaHelper()
 		{
-			Database = new DatabaseDefinition("RawGISData");
+			Database = new DatabaseDefinition("RawTigerData");
 		}
-
-		public static string SourceDirectoryPath => ConfigurationManager.AppSettings["SourceDirectory"];
-		public DirectoryInfo SourceDirectory => new DirectoryInfo(SourceDirectoryPath);
-		public string SourceDirectoryName => SourceDirectory.Name;
-
-		public static string OutputDirectoryPath => ConfigurationManager.AppSettings["OutputDirectory"];
-		public DirectoryInfo OutputDirectory => new DirectoryInfo(OutputDirectoryPath);
-		public string OutputDirectoryName => OutputDirectory.Name;
-
-		public string GeometryColumnName => ConfigurationManager.AppSettings["GeometryColumnName"];
-
-		public string FilePrefix => ConfigurationManager.AppSettings["FilePrefix"];
 
 		public DatabaseDefinition Database { get; set; }
 
-		public void ProcessDirectory()
+		public void ProcessDirectories(DirectoryInfo sourceDirectory)
 		{
-			if (!SourceDirectory.Exists)
-				throw new ArgumentNullException(nameof(SourceDirectoryPath),
-					"The Source Directory does not exist. Please provide a valid source directory path.");
+			var directories = sourceDirectory.EnumerateDirectories("*", SearchOption.TopDirectoryOnly);
 
-			string[] filePaths = Directory.GetFiles(SourceDirectoryPath, "*.zip", SearchOption.AllDirectories);
-
-			foreach (string filePath in filePaths)
+			foreach (var directory in directories.OrderByDescending(o => o.Name))
 			{
-				ProcessZipFile(filePath);
-			}
+				//if (directory.Name != "ANRC")
+				//	continue;
 
-			GenerateSchema();
+				var table = Database.Tables.FirstOrDefault(f => f.Name == directory.Name);
+
+				ProcessDirectory(directory);
+			}
 		}
 
-		public void ProcessZipFile(string filePath)
+		public void ProcessDirectory(DirectoryInfo sourceDirectory)
 		{
-			Stopwatch sw = Stopwatch.StartNew();
-			FileInfo file = new FileInfo(filePath);
+			if (!sourceDirectory.Exists)
+				throw new ArgumentNullException(nameof(sourceDirectory),
+					"The Source Directory does not exist. Please provide a valid source directory path.");
 
-			if (file?.Directory == null || !file.Directory.Exists || !file.Exists)
-				throw new ArgumentNullException(nameof(file), "The file or directory specified is null or does not exist.");
-
-			string fileName = file.Name;
-			string fileExtension = file.Extension;
-			string tableName = file.Directory.Name;
-			string lowerTableName = tableName.ToLower();
-			string outputDirectoryPath = Path.Combine(OutputDirectoryPath, "Schemas", tableName);
-
-			string cleanName = fileName.Replace(fileExtension, string.Empty)
-				.Replace(FilePrefix, string.Empty)
-				.Replace(lowerTableName, string.Empty)
-				.Trim('_')
-				.Trim();
-
-			TableDefinition table = Database.Tables.FirstOrDefault(f => f.Name == tableName);
+			var tableName = sourceDirectory.Name;
+			var table = Database.Tables.FirstOrDefault(f => f.Name == tableName);
 
 			if (table == null)
 			{
@@ -78,12 +58,46 @@ namespace GISSchemaGenerator
 				Database.Tables.Add(table);
 			}
 
-			ZipArchive zipFile = ZipFile.OpenRead(filePath);
+			var files = sourceDirectory.EnumerateFiles("*.zip", SearchOption.AllDirectories);
+
+			foreach (var file in files)
+			{
+				ProcessZipFile(file);
+			}
+
+			foreach (var column in table.Columns)
+			{
+				column.ResolveDataType();
+				column.RawValues.Clear();
+			}
+		}
+
+		public void ProcessZipFile(FileInfo file)
+		{
+			var sw = Stopwatch.StartNew();
+
+			if(file == null || !file.Exists)
+				throw new ArgumentNullException(nameof(file));
+
+			var tableName = file.Directory?.Name;
+
+			if(string.IsNullOrWhiteSpace(tableName))
+				throw new ArgumentNullException(nameof(tableName));
+
+			var table = Database.Tables.FirstOrDefault(f => f.Name == tableName);
+
+			if (table == null)
+			{
+				table = new TableDefinition(tableName);
+				Database.Tables.Add(table);
+			}
+
+			var zipFile = ZipFile.OpenRead(file.FullName);
 
 			ZipArchiveEntry attributeEntry = null;
 			ZipArchiveEntry metadataEntry = null;
 
-			foreach (ZipArchiveEntry entry in zipFile.Entries)
+			foreach (var entry in zipFile.Entries)
 			{
 				if (entry.FullName.EndsWith(".cpg")
 					|| entry.FullName.EndsWith(".prj")
@@ -102,17 +116,20 @@ namespace GISSchemaGenerator
 			if (attributeEntry == null)
 				throw new ArgumentNullException(nameof(attributeEntry), "The attribute entry appears to be null. Unable to proceed!");
 
-			if (metadataEntry == null)
-				throw new ArgumentNullException(nameof(metadataEntry), "The metadata entry appears to be null. Unable to proceed!");
+			//if (metadataEntry == null)
+			//	throw new ArgumentNullException(nameof(metadataEntry), "The metadata entry appears to be null. Unable to proceed!");
+
+			if (metadataEntry != null)
+				Console.WriteLine(metadataEntry.FullName);
 
 			Console.WriteLine($"Attribute File: {attributeEntry.FullName}");
-			Console.WriteLine($" Metadata File: {metadataEntry.FullName}");
+			Console.WriteLine($" Metadata File: {metadataEntry?.FullName}");
 
-			DBFFile dbfFile = new DBFFile(attributeEntry);
+			var dbfFile = new DBFFile(attributeEntry);
 
-			foreach (DBFField field in dbfFile.Fields)
+			foreach (var field in dbfFile.Fields)
 			{
-				ColumnDefinition column = table.Columns.FirstOrDefault(f => f.Name == field.Name);
+				var column = table.Columns.FirstOrDefault(f => f.Name == field.Name);
 
 				if (column == null)
 				{
@@ -120,40 +137,44 @@ namespace GISSchemaGenerator
 					table.Columns.Add(column);
 				}
 
-				column.DataType = column.DataType.PrioritizeDataType(field.DataType);
-				column.MinLength = column.MinLength == null || field.MinLength < column.MinLength ? field.MinLength : column.MinLength;
-				column.MaxLength = column.MaxLength == null || field.MaxLength > column.MaxLength ? field.MaxLength : column.MaxLength;
-				column.IsNullable = field.IsNullable;
+				foreach (var value in field.Values)
+					column.RawValues.Add(value);
 			}
 
-			if (metadataEntry.FullName.Contains(".shp."))
+			if (zipFile.Entries.Any(a => a.FullName.EndsWith(".shp")))
 			{
-				ColumnDefinition geomColumn = table.Columns.FirstOrDefault(f => f.Name == GeometryColumnName);
+				var geomColumn = table.Columns.FirstOrDefault(f => f.Name == GeometryColumnName);
 
 				if (geomColumn == null)
 				{
 					geomColumn = new ColumnDefinition(GeometryColumnName);
 					table.Columns.Add(geomColumn);
 				}
-
-				if (geomColumn.DataType != typeof (SqlGeometry))
-				{
-					geomColumn.DataType = typeof (SqlGeometry);
-				}
 			}
 
 			sw.Stop();
-			Console.WriteLine($"{filePath} has finished!\r\nTOTAL DURATION: {sw.Elapsed}");
+			Console.WriteLine($"{file.Name} has finished!\r\nTOTAL DURATION: {sw.Elapsed}");
 		}
 
 		public void GenerateSchema()
 		{
-			Console.WriteLine(Database.ToEFString());
+			WriteClassFile("RawTigerData", Database.ToEFString());
 
 			foreach (var table in Database.Tables)
 			{
-				Console.WriteLine(table.ToEFString());
+				WriteClassFile(table.Name, table.ToEFString());
 			}
+		}
+
+		private void WriteClassFile(string name, string contents)
+		{
+			var fileName = $"{name}.cs";
+			var path = Path.Combine(OutputDirectoryPath, "Generated", fileName);
+
+			if (File.Exists(path))
+				File.Delete(path);
+
+			File.WriteAllText(path, contents);
 		}
 	}
 }

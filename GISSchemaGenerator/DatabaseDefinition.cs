@@ -23,7 +23,7 @@ namespace GISSchemaGenerator
 
 		public string ToEFString()
 		{
-			string output = $"public class {Name}Entities : DbContext\r\n{{\r\n";
+			var output = $"public class {Name}Entities : DbContext\r\n{{\r\n";
 			output = Tables.Aggregate(output, (current, table) => current + $"\tpublic DbSet<{table.Name}> {DataHelper.Pluralizer.Pluralize(table.Name)} {{ get; set; }}\r\n");
 			output += "}";
 			return output;

@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace GISSchemaGenerator
 {
 	#region Library Imports
@@ -27,31 +29,29 @@ namespace GISSchemaGenerator
 		public DBFHeader Header { get; set; }
 		//public byte[] DatabaseContainer { get; set; }
 		public ICollection<DBFField> Fields { get; set; }
-		public ICollection<string[]> Values { get; set; }
 
 		private void Initialize()
 		{
 			Fields = new HashSet<DBFField>();
-			Values = new HashSet<string[]>();
 		}
 
 		public void ProcessFileEntry(ZipArchiveEntry fileEntry)
 		{
-			using (Stream stream = fileEntry.Open())
+			using (var stream = fileEntry.Open())
 			{
-				using (MemoryStream ms = new MemoryStream())
+				using (var ms = new MemoryStream())
 				{
 					stream.CopyTo(ms);
 					ms.Position = 0;
 
-					using (BinaryReader br = new BinaryReader(ms))
+					using (var br = new BinaryReader(ms))
 					{
 						Header = new DBFHeader(br);
 
 						short fieldIndex = 0;
 						while (br.PeekChar() != 13)
 						{
-							DBFField field = new DBFField(fieldIndex, br);
+							var field = new DBFField(fieldIndex, br);
 							Fields.Add(field);
 							fieldIndex++;
 						}
@@ -62,25 +62,18 @@ namespace GISSchemaGenerator
 						// Visual FoxPro only
 						//DatabaseContainer = br.ReadBytes(263);
 
-						for (int i = 0; i < Header.RecordCount; i++)
+						for (var i = 0; i < Header.RecordCount; i++)
 						{
 							// Check if the record starts with an asterisk (indicating that it was deleted)
 							if (br.ReadByte() == 42)
 								// Ignore deleted records
 								continue;
 
-							string[] record = new string[Fields.Count];
-
 							// Record isn't deleted and should be valid
-							foreach (DBFField field in Fields)
+							foreach (var field in Fields.OrderBy(o => o.Index))
 							{
-								//byte[] value = br.ReadBytes(field.Item1.Length);
-								//string valueString = Encoding.ASCII.GetString(value).Trim();
-								//record[field.Item2] = valueString;
-
-								record[field.Index] = Encoding.ASCII.GetString(br.ReadBytes(field.Length)).Trim();
+								field.Values.Add(Encoding.ASCII.GetString(br.ReadBytes(field.Length)).Trim());
 							}
-							Values.Add(record);
 						}
 						br.Close();
 					}
@@ -88,8 +81,6 @@ namespace GISSchemaGenerator
 				}
 				stream.Close();
 			}
-
-			DataHelper.FixFields(this);
 		}
 	}
 }
